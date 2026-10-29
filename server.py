@@ -7,8 +7,12 @@ from urllib.parse import urlparse, parse_qs
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DATA = os.environ.get('DATA_DIR', os.path.join(ROOT, 'data'))
 MEDIA = os.path.join(DATA, 'media'); STORE = os.path.join(DATA, 'messages.json')
-CFG = json.load(open(os.path.join(ROOT, 'config.json')))
-CODE = os.environ.get('WARCHAT_CODE', CFG['passcode'])
+CODE = os.environ.get('WARCHAT_CODE')
+if not CODE:
+    try:
+        CODE = json.load(open(os.path.join(ROOT, 'config.json')))['passcode']
+    except Exception:
+        CODE = 'war2526'
 PORT = int(os.environ.get('PORT', 8801))
 _lock = threading.Lock()
 os.makedirs(MEDIA, exist_ok=True)
