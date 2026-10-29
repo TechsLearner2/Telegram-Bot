@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: war-chat
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: WARCHAT_CODE
+        sync: false
+      - key: TG_TOKEN
+        sync: false
