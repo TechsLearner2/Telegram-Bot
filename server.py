@@ -86,6 +86,18 @@ class H(BaseHTTPRequestHandler):
                 msgs = load_msgs(); m['id'] = (msgs[-1]['id']+1) if msgs else 1
                 msgs.append(m); save_msgs(msgs)
             return self._json({'ok':True,'message':m})
+        if u.path == '/api/messages':
+            if not isinstance(req, list): return self._json({'err':'want list'},400)
+            out = []
+            for m in req:
+                if not isinstance(m, dict) or m.get('from') not in ('tatharaj','adhithiya'): continue
+                out.append({'id':int(m.get('id') or 0),'from':m['from'],'kind':m.get('kind','text'),
+                    'text':str(m.get('text') or '')[:4000],'ts':int(m.get('ts') or time.time()),
+                    'seen':bool(m.get('seen')),'media':m.get('media'),'name':m.get('name'),'size':m.get('size')})
+            ids = [m['id'] for m in out]
+            if len(set(ids)) != len(ids): return self._json({'err':'dup ids'},400)
+            with _lock: save_msgs(out)
+            return self._json({'ok':True,'count':len(out)})
         if u.path == '/api/seen':
             with _lock:
                 msgs = load_msgs(); ch = False
