@@ -12,6 +12,10 @@ on:
     - cron: '30 14 * * *'   # 22:30 KL — SLEEP final call
   workflow_dispatch: {}
 
+concurrency:
+  group: war-pings
+  cancel-in-progress: false
+
 jobs:
   ping:
     runs-on: ubuntu-latest
@@ -21,7 +25,7 @@ jobs:
           import os, json, urllib.request, urllib.parse
           from datetime import date, datetime, timezone, timedelta
           KL = timezone(timedelta(hours=8))
-          now = datetime.now(KL); h = now.hour; wd = now.weekday()
+          now = datetime.now(KL); wd = now.weekday()
           TOK = os.environ["WAR_BOT_TOKEN"]; CHAT = 1835829454
           EXAMS=[("PA3",date(2026,11,17)),("MathT3",date(2026,11,19)),
                  ("Chem3",date(2026,11,24)),("Phys3",date(2026,11,25))]
@@ -29,6 +33,26 @@ jobs:
           ROT=["Maths 954/3 — C&R drill","Physics 960/3 — Q21/22 patterns",
                "Maths 954/3 — CI + hyp-test gym","Physics 960/3 — SHM + TOV"]
           mission=ROT[wd%len(ROT)]
+          # which slot AM I? (from the cron that triggered this run — delay-proof)
+          slot=None; intended=None
+          try:
+              ev=json.load(open(os.environ["GITHUB_EVENT_PATH"]))
+              cron=ev.get("schedule","")
+              M={"55 0 * * *":("dcount",8,55),"30 4 * * *":("midcheck",12,30),
+                 "55 5 * * *":("blockwarn",13,55),"25 7 * * *":("blockclose",15,25),
+                 "25 9 * * *":("block2",17,25),"55 11 * * *":("night",19,55),
+                 "55 13 * * *":("debrief",21,55),"30 14 * * *":("sleep",22,30)}
+              if cron in M:
+                  slot,(hh,mm) = M[cron][0], (M[cron][1],M[cron][2])
+                  intended = now.replace(hour=hh,minute=mm,second=0,microsecond=0)
+          except Exception: pass
+          # freshness gate: delayed/backlogged runs get DROPPED (kills spam bursts)
+          if intended is not None:
+              lag = abs((now-intended).total_seconds())/60
+              if lag > 45:
+                  print(f"STALE run skipped: slot {slot}, lag {lag:.0f} min")
+                  raise SystemExit(0)
+          if slot is None: slot = "dcount"  # manual dispatch = status message
           def tg(m,**k):
               urllib.request.urlopen(f"https://api.telegram.org/bot{TOK}/{m}",
                                      urllib.parse.urlencode(k).encode(), timeout=30)
@@ -43,20 +67,18 @@ jobs:
           if gap>=48: mood="48h of silence, boss. The paper doesn't care how you feel — only whether you showed. Show."
           elif gap>=24: mood="A day dark, boss. One line. Now."
           else: mood="Boss"
-          if h==0:   msg=f"{mood}. {dc}. Today's ONE block: {mission}. Ping back when you're up. 🐐"
-          elif h==4: msg=f"🌗 Midcheck. Morning: landed or leaked? Block-1 stands at 2pm. {dc}."
-          elif h==5: msg=f"⚔️ 5 minutes to BLOCK-1: {mission}. Phone face-down at 2:00."
-          elif h==7: msg="✍️ Pens down, Block-1 over. ONE line: what landed. Bad answers welcome. Silence isn't."
-          elif h==9:
-              if wd==4: msg="🧪 Fizik tuition 5–7 — move now."
-              else: msg=f"⚔️ BLOCK-2, 90 min: {mission}. Evening is where marks are stolen."
-          elif h==11:
-              if wd in (0,1): msg="📚 PA tuition 7:30–9:30 — seated early? Post-class: straight to debrief."
-              else: msg="🌙 Night block, 45 min: past-year MCQs or formula-sheet rewrite. Small, but daily."
-          elif h==13: msg=f"🌙 DEBRIEF — 3 lines: did / didn't / tomorrow's ONE thing. Sleep law 11pm. {dc}."
-          else:      msg="🚨 FINAL CALL: devices down by 11pm. D-COUNT fires 8:55am. Fail forward — report anyway. 🐐"
+          MSG={
+           "dcount":     f"{mood}. {dc}. Today's ONE block: {mission}. Ping back when you're up. 🐐",
+           "midcheck":   f"🌗 Midcheck. Morning: landed or leaked? Block-1 stands at 2pm. {dc}.",
+           "blockwarn":  f"⚔️ 5 minutes to BLOCK-1: {mission}. Phone face-down at 2:00.",
+           "blockclose": "✍️ Pens down, Block-1 over. ONE line: what landed. Bad answers welcome. Silence isn't.",
+           "block2":     ("🧪 Fizik tuition 5–7 — move now." if wd==4 else f"⚔️ BLOCK-2, 90 min: {mission}. Evening is where marks are stolen."),
+           "night":      ("📚 PA tuition 7:30–9:30 — seated early? Post-class: straight to debrief." if wd in (0,1) else "🌙 Night block, 45 min: past-year MCQs or formula-sheet rewrite. Small, but daily."),
+           "debrief":    f"🌙 DEBRIEF — 3 lines: did / didn't / tomorrow's ONE thing. Sleep law 11pm. {dc}.",
+           "sleep":      "🚨 FINAL CALL: devices down by 11pm. D-COUNT fires 8:55am. Fail forward — report anyway. 🐐"}
+          msg=MSG[slot]
           tg("sendMessage", chat_id=CHAT, text=msg[:4000])
-          print("sent:", msg[:100])
+          print("sent:", slot, "|", msg[:100])
           PYEOF
         env:
           WAR_BOT_TOKEN: ${{ secrets.WAR_BOT_TOKEN }}
